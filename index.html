@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 출석 관리 시스템</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg: #f9fafb;
+            --card: #ffffff;
+            --text: #111827;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; line-height: 1.6; }
+        
+        .container { max-width: 800px; margin: 0 auto; }
+        
+        header { text-align: center; margin-bottom: 30px; }
+        header h1 { font-size: 1.8rem; color: var(--primary); font-weight: 600; }
+        header p { color: #6b7280; font-size: 0.9rem; }
+
+        /* 입력 섹션 */
+        .input-card {
+            background: var(--card);
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 24px;
+        }
+
+        .input-group { margin-bottom: 16px; }
+        label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 8px; }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus { border-color: var(--primary); ring: 2px solid var(--primary); }
+
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+            color: white;
+        }
+        button:active { transform: scale(0.98); }
+        .btn-present { background-color: var(--success); }
+        .btn-absent { background-color: var(--danger); }
+        .btn-late { background-color: var(--warning); }
+
+        /* 기록 리스트 섹션 */
+        .list-card {
+            background: var(--card);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #f3f4f6; padding: 12px 16px; font-size: 0.875rem; color: #374151; }
+        td { padding: 14px 16px; border-bottom: 1px solid #f3f4f6; font-size: 0.95rem; }
+        
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: white;
+        }
+        .badge-출석 { background: var(--success); }
+        .badge-결석 { background: var(--danger); }
+        .badge-지각 { background: var(--warning); }
+
+        .time { color: #6b7280; font-size: 0.8rem; }
+        .delete-btn { color: #9ca3af; cursor: pointer; border: none; background: none; font-size: 1.2rem; }
+        .delete-btn:hover { color: var(--danger); }
+
+        /* 반응형 */
+        @media (max-width: 480px) {
+            .btn-group { grid-template-columns: 1fr; }
+            th:nth-child(3), td:nth-child(3) { display: none; } /* 모바일에서 날짜 숨김 */
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>출석 체크 시스템</h1>
+        <p id="currentDate"></p>
+    </header>
+
+    <div class="input-card">
+        <div class="input-group">
+            <label for="studentName">학생 이름</label>
+            <input type="text" id="studentName" placeholder="이름을 입력하세요" autocomplete="off">
+        </div>
+        <div class="btn-group">
+            <button class="btn-present" onclick="recordAttendance('출석')">출석</button>
+            <button class="btn-late" onclick="recordAttendance('지각')">지각</button>
+            <button class="btn-absent" onclick="recordAttendance('결석')">결석</button>
+        </div>
+    </div>
+
+    <div class="list-card">
+        <table>
+            <thead>
+                <tr>
+                    <th>이름</th>
+                    <th>상태</th>
+                    <th>시간</th>
+                    <th>삭제</th>
+                </tr>
+            </thead>
+            <tbody id="attendanceList">
+                <!-- 실시간 데이터가 여기에 표시됩니다 -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Firebase SDK (Modular) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, deleteDoc, doc } 
+    from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // 1. Firebase 설정 (본인의 정보로 변경하세요)
+    const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_PROJECT_ID.appspot.com",
+        messagingSenderId: "YOUR_MESSAGING_ID",
+        appId: "YOUR_APP_ID"
+    };
+
+    // Firebase 초기화
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const attendanceCol = collection(db, "attendance");
+
+    // 오늘 날짜 표시
+    document.getElementById('currentDate').innerText = new Date().toLocaleDateString('ko-KR', {
+        year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
+    });
+
+    // 2. 출석 기록 추가 함수
+    window.recordAttendance = async (status) => {
+        const nameInput = document.getElementById('studentName');
+        const name = nameInput.value.trim();
+
+        if (!name) {
+            alert("학생 이름을 입력해주세요.");
+            return;
+        }
+
+        try {
+            await addDoc(attendanceCol, {
+                name: name,
+                status: status,
+                timestamp: serverTimestamp()
+            });
+            nameInput.value = ""; // 입력창 초기화
+        } catch (e) {
+            console.error("에러 발생: ", e);
+            alert("저장 중 오류가 발생했습니다.");
+        }
+    };
+
+    // 3. 기록 삭제 함수
+    window.deleteRecord = async (id) => {
+        if (confirm("정말 삭제하시겠습니까?")) {
+            await deleteDoc(doc(db, "attendance", id));
+        }
+    };
+
+    // 4. 실시간 데이터 불러오기 (onSnapshot)
+    const q = query(attendanceCol, orderBy("timestamp", "desc"));
+    onSnapshot(q, (snapshot) => {
+        const listBody = document.getElementById('attendanceList');
+        listBody.innerHTML = ""; // 기존 목록 비우기
+
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            const date = data.timestamp ? data.timestamp.toDate() : new Date();
+            const timeStr = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+            const row = `
+                <tr>
+                    <td><strong>${data.name}</strong></td>
+                    <td><span class="badge badge-${data.status}">${data.status}</span></td>
+                    <td class="time">${timeStr}</td>
+                    <td><button class="delete-btn" onclick="deleteRecord('${doc.id}')">&times;</button></td>
+                </tr>
+            `;
+            listBody.innerHTML += row;
+        });
+    });
+</script>
+
+</body>
+</html>
